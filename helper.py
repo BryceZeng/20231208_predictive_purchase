@@ -148,15 +148,15 @@ def clean_data(df):
 
     ##############################
     df_full = pd.merge(df_full, df_cat)
-    df_full["INDUSTRY"] = df_full.groupby("CUSTOMER_SHIPTO")["INDUSTRY"].transform(
-        lambda x: x.ffill().bfill()
-    )
-    df_full["PLANT"] = df_full.groupby("CUSTOMER_SHIPTO")["PLANT"].transform(
-        lambda x: x.ffill().bfill()
-    )
-    df_full["INDUSTRY_SUBLEVEL"] = df_full.groupby("CUSTOMER_SHIPTO")[
-        "INDUSTRY_SUBLEVEL"
-    ].transform(lambda x: x.ffill().bfill())
+    # df_full["INDUSTRY"] = df_full.groupby("CUSTOMER_SHIPTO")["INDUSTRY"].transform(
+    #     lambda x: x.ffill().bfill()
+    # )
+    # df_full["PLANT"] = df_full.groupby("CUSTOMER_SHIPTO")["PLANT"].transform(
+    #     lambda x: x.ffill().bfill()
+    # )
+    # df_full["INDUSTRY_SUBLEVEL"] = df_full.groupby("CUSTOMER_SHIPTO")[
+    #     "INDUSTRY_SUBLEVEL"
+    # ].transform(lambda x: x.ffill().bfill())
     df_full.fillna(0, inplace=True)
 
     #####################

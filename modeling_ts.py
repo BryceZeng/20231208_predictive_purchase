@@ -2,7 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 from gluonts.dataset.common import ListDataset
 from gluonts.dataset.field_names import FieldName
 from gluonts.dataset.util import to_pandas
-from gluonts.mx import DeepAREstimator
+# from gluonts.mx import DeepAREstimator
+from gluonts.model.deepar import DeepAREstimator
 from gluonts.mx.trainer import Trainer
 from pandas.tseries.offsets import DateOffset
 from sklearn.preprocessing import LabelEncoder

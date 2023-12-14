@@ -11,11 +11,13 @@ import pandas as pd
 
 current_date = datetime.today() - relativedelta(days=10)
 min_date = current_date - relativedelta(months=24)
+report_date = current_date.strftime("%Y%m") + "30"
+current_month = current_date.strftime("%Y-%m")
 current_date = current_date.strftime("%Y-%m") + "-01"
 min_date = min_date.strftime("%Y-%m") + "-01"
 current_date = "2023-11-01"
 # For 1st stage - ts prediction
-with open("predictor11.pkl", "rb") as f:
+with open("predictor11_new.pkl", "rb") as f:
     model_ts = dill.load(f)
 
 # For 2nd stage - ts across period
@@ -23,20 +25,32 @@ with open("model_list2.pkl", "rb") as f:
     model_class = dill.load(f)
 
 
-dtypes = {"CUSTOMER_NUMBER": str, "SHIP_TO": str}
-df = pd.read_csv("data/data_6.csv")
+dtypes = {"CUSTOMER_NUMBER": str}
+df = pd.read_csv("data/data_7.csv")
 df["POSTING_DATE"] = pd.to_datetime(df["POSTING_DATE"])
 # df.head()
-df["POSTING_DATE"].max()
-df.columns
+len(df)
+print(df["POSTING_DATE"].max())
+df = df[df["POSTING_DATE"]<='2023-11-01']
+df = df[df["POSTING_DATE"]>='2022-11-01']
+
+# df.columns
 
 df = helper.clean_data(df)
 df = helper.create_lags(df)
+df.to_pickle('df.pkl')
+df = pd.read_pickle('df.pkl')
+
+
 df_time = modeling_ts.predict_timeseries(df, model_ts, start_date=current_date)
+
+
+
 # df_time = df_time2.copy()
 df_time.reset_index(inplace=True)
+df_time["CUSTOMER_SHIPTO"][0]
 
-df_time[df_time["CUSTOMER_SHIPTO"] == "1628667_1628667"]
+df_time[df_time["CUSTOMER_SHIPTO"] == "PEA300.AU10.0001628667"]
 
 # df_time = pd.read_csv("temp.csv")
 df_p = modeling_class.predict_classifer(
@@ -69,10 +83,11 @@ def calculate_slope(row):
     max_cch = max([row["CCH_lag_2"], row["CCH_lag_1"], row["CCH"]])
     percent_decline = slope / max_cch
 
-    return slope, percent_decline, max_cch, p_value, period_to_cross_zero
+    drop = row["CCH_lag_1"] - row["CCH"]
 
+    return slope, percent_decline, max_cch, p_value, period_to_cross_zero, drop
 
-df_p[["slope", "percent_decline", "max_cch", "p_value", "cross_zero"]] = df_p.apply(
+df_p[["slope", "percent_decline", "max_cch", "p_value", "cross_zero", "drop"]] = df_p.apply(
     calculate_slope, axis=1, result_type="expand"
 )
 
@@ -119,7 +134,7 @@ df2["predicted"] = df2["value"].fillna(df2["CCH"])
 
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import acf
-from scipy.signal import correlate
+# from scipy.signal import correlate
 
 
 def find_transform(series):
@@ -151,9 +166,13 @@ def find_transform(series):
     diff_phase = best_period - best_period2
     # amplitude_max = min(result.seasonal.max(), result2.seasonal.max())
     amplitude_max = result2.seasonal.max()
+    # seasonal_shift = np.argmax(
+    #     correlate(result.seasonal.tolist(), result2.seasonal.tolist())
+    # )
     seasonal_shift = np.argmax(
-        correlate(result.seasonal.tolist(), result2.seasonal.tolist())
+        np.correlate(result.seasonal.tolist(), result2.seasonal.tolist(), mode='valid')
     )
+
 
     return (
         diff_phase,
@@ -201,10 +220,6 @@ df3 = df3.reset_index(drop=True)
 df3 = df3.replace([-np.inf, np.inf], -100)
 
 # get the yyyymmdd
-from datetime import datetime
-now = datetime.datetime.strptime(datetime.today(), "%Y-%m")
-
-
 def apply_classifier(row):
     if row["percent_decline"] >= 0.25:
         slope_score = -10
@@ -298,7 +313,7 @@ def apply_classifier(row):
     else:
         crossing = ""
 
-    risk_value = f"""6 mth CCH likely {slope_t} within {int(np.abs(row["percent_decline"])*100)}%. {crossing} CCH values: {int(row["pred1"])}, {int(row["pred2"])}, {int(row["pred3"])}, {int(row["pred4"])}, {int(row["pred5"])}, {int(row["pred6"])}. {period_t} in periodicity of {period} mth."""
+    risk_value = f"""{report_date}: 6 mth CCH likely {slope_t} within {int(np.abs(row["percent_decline"])*100)}%. {crossing} CCH values: {int(row["pred1"])}, {int(row["pred2"])}, {int(row["pred3"])}, {int(row["pred4"])}, {int(row["pred5"])}, {int(row["pred6"])}. {period_t} in periodicity of {period} mth."""
 
     risk_score = (risk_score + 100) / 2
 
@@ -309,6 +324,6 @@ def apply_classifier(row):
 df3[["risk_score", "risk_value"]] = df3.apply(
     apply_classifier, axis=1, result_type="expand"
 )
-len(df3["risk_value"][13])
+len(df3)
 
-df3.to_csv("temp_2.csv")
+df3.to_csv("temp_3.csv")
