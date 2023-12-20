@@ -2,6 +2,7 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from holidays import Australia
 from scipy.ndimage import gaussian_filter1d
+from scipy import stats
 # from sqlalchemy import create_engine, text
 from tqdm import tqdm
 import numpy as np
@@ -193,3 +194,30 @@ def create_lags(df):
     for i in range(6):
         df[f"Smoothed_Holidays_shift_{i+1}"] = df["Smoothed_Holidays"].shift(-1 - i)
     return df
+
+def calculate_slope(row):
+    data = [
+        row["CCH_lag_2"],
+        row["CCH_lag_1"],
+        row["CCH"],
+        row["pred1"],
+        row["pred2"],
+        row["pred3"],
+        row["pred4"],
+        row["pred5"],
+        row["pred6"],
+    ]
+    slope, intercept, r_value, p_value, std_err = stats.linregress(
+        range(len(data)), data
+    )
+    if slope < 0:
+        period_to_cross_zero = abs(intercept / slope)
+    else:
+        period_to_cross_zero = None
+    max_cch = max([row["CCH_lag_2"], row["CCH_lag_1"], row["CCH"]])
+    percent_decline = slope / max_cch
+
+    drop = row["CCH_lag_1"] - row["CCH"]
+
+    return slope, percent_decline, max_cch, p_value, period_to_cross_zero, drop
+
