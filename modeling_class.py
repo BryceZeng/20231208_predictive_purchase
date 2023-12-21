@@ -8,6 +8,7 @@ import helper
 from sklearn.model_selection import train_test_split
 import dalex as dx
 from scipy import stats
+from sklearn.metrics import mean_squared_error
 
 variables = [
         "period_1_sample_mean",
@@ -51,17 +52,25 @@ variables = [
         "SALE_QTY_lag_1",
         "SALE_QTY_lag_2",
         "SALE_QTY_lag_3",
-        "DAILY_RENT_lag_1",
-        "DAILY_RENT_lag_2",
-        "DAILY_RENT_lag_3",
+        "DISCOUNT_RATIO", # NOT ADDED
+        "AVG_DOCUMENT_ISSUE_DIFF", # NOT ADDED
+        "AVG_POST_ISSUE_DIFF", # NOT ADDED
+        "DAY_BETWEEN_POSTING", # NOT ADDED
+        "DELIVERY", # NOT ADDED
+        'PROD_SMLLD2_SALE', # NOT ADDED
+        'PROD_1MEDLE_SALE', # NOT ADDED
+        'PROD_SMLLD_SALE', # NOT ADDED
+        # "DAILY_RENT_lag_1",
+        # "DAILY_RENT_lag_2",
+        # "DAILY_RENT_lag_3",
         "CNT_POSTING_DATE_lag_1",
         "CNT_POSTING_DATE_lag_2",
         "CNT_POSTING_DATE_lag_3",
         "PROD_LRGLG_SALE_lag_1",
         "PROD_LRGLG_SALE_lag_2",
         "PROD_LRGLG_SALE_lag_3",
-        "ROLL_MEAN_3",
-        "ROLL_MEAN_6",
+        # "ROLL_MEAN_3",
+        # "ROLL_MEAN_6",
     ]
 def train_classifer(df):
     df = pd.read_csv("data/data_8.csv")
@@ -115,7 +124,7 @@ def train_classifer(df):
     y6 = df_wide["CCH_shift_6"]
 
     def prediction_lgb(X, y1):
-        X_train, X_test, y_train, y_test = train_test_split(X, y1, test_size=0.30)
+        X_train, X_test, y_train, y_test = train_test_split(X, y1, test_size=0.15)
         lgb_train = lgb.Dataset(X_train, y_train)
         lgb_test = lgb.Dataset(X_test, y_test, reference=lgb_train)
         # params = {"boosting_type": "dart", "objective": "mse","learning_rate": 0.02,"max_depth": 3,"num_leaves": 12}
@@ -123,11 +132,13 @@ def train_classifer(df):
                 "objective": "regression",
                 'metric':['l1','l2'],
                 "tree":"voting",
-                "learning_rate": 0.01,
+                "learning_rate": 0.005,
                 'num_iterations':3000,
                 'early_stopping_round':5,
+                'max_bin':500,
                 # "max_depth": 3,
                 # "bagging_fraction":0.6,
+                'feature_fraction':0.8,
                 "data_sample_strategy":'goss',
                 # "num_leaves": 12
                 'force_row_wise':True
@@ -135,7 +146,7 @@ def train_classifer(df):
         gbm = lgb.train(
             params,
             lgb_train,
-            num_boost_round=500,
+            num_boost_round=2500,
             valid_sets=lgb_test,
         )
         return gbm
@@ -146,10 +157,14 @@ def train_classifer(df):
     y5_pred = prediction_lgb(X, y5)
     y6_pred = prediction_lgb(X, y6)
 
-    model_list = [y1_pred, y2_pred, y3_pred, y4_pred, y5_pred, y6_pred]
-    # with open("model_list3b.pkl", "wb") as f:
-    #     dill.dump(model_list, f)
-    return model_list
+    model = [y1_pred, y2_pred, y3_pred, y4_pred, y5_pred, y6_pred]
+
+    print(mean_squared_error(y1, y1_pred.predict(X)))
+    print(mean_squared_error(y3, y3_pred.predict(X)))
+    print(mean_squared_error(y6, y6_pred.predict(X)))
+    # with open("model_list6.pkl", "wb") as f:
+    #     dill.dump(model, f)
+    return model
 
 def calculate_slope(row):
     data = [
@@ -263,3 +278,4 @@ def explainer_d(gbm_explainer, instance):
     return string
 
 
+# df_new = df_wide[["CUSTOMER_SHIPTO","pred1","CCH_shift_1","pred2","CCH_shift_2","pred3","CCH_shift_3","pred4","CCH_shift_4","pred5","CCH_shift_5","pred6","CCH_shift_6"]]
