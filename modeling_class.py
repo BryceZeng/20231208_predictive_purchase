@@ -96,12 +96,13 @@ def train_classifer(df):
         df_wide[column_name] = upper_bound - lower_bound
     df_wide = df_wide[df_wide['POSTING_DATE'] <='2023-05-01']
     df_wide = df_wide.dropna()
+    df_wide = pd.read_pickle('df_wide.pkl')
 
 
-    mask = (df_wide[['CCH_shift_1','CCH_shift_2','CCH_shift_3','CCH_shift_4','CCH_shift_5','CCH_shift_6']] <= 0)
-    row_mask = mask.all(axis=1)
-    df_wide = df_wide[~row_mask]
-    df_wide = df_wide.reset_index()
+    # mask = (df_wide[['CCH_shift_1','CCH_shift_2','CCH_shift_3','CCH_shift_4','CCH_shift_5','CCH_shift_6']] <= 0)
+    # row_mask = mask.all(axis=1)
+    # df_wide = df_wide[~row_mask]
+    # df_wide = df_wide.reset_index()
 
     for column in variables:
         df_wide[column] = df_wide[column].astype(float)
@@ -118,19 +119,24 @@ def train_classifer(df):
         lgb_train = lgb.Dataset(X_train, y_train)
         lgb_test = lgb.Dataset(X_test, y_test, reference=lgb_train)
         # params = {"boosting_type": "dart", "objective": "mse","learning_rate": 0.02,"max_depth": 3,"num_leaves": 12}
-        params = {"boosting_type": "dart",
+        params = {"boosting_type": "gbdt",
                 "objective": "regression",
+                'metric':['l1','l2'],
                 "tree":"voting",
-                "learning_rate": 0.02,
-                "max_depth": 3,
-                "bagging_fraction":0.6,
-                "num_leaves": 12}
+                "learning_rate": 0.01,
+                'num_iterations':3000,
+                'early_stopping_round':5,
+                # "max_depth": 3,
+                # "bagging_fraction":0.6,
+                "data_sample_strategy":'goss',
+                # "num_leaves": 12
+                'force_row_wise':True
+                }
         gbm = lgb.train(
             params,
             lgb_train,
             num_boost_round=500,
-            valid_sets=[lgb_train,lgb_test],
-            valid_names=["Train", "Test"]
+            valid_sets=lgb_test,
         )
         return gbm
     y1_pred = prediction_lgb(X, y1)
