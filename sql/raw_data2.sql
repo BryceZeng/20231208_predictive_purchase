@@ -29,10 +29,15 @@ WITH
             [VVR70] VVR70,
             [PRODH] PRODH,
             ((ISNULL([VVR98],0)+ISNULL([VVR99],0)+ISNULL([VVR95],0)+ISNULL([VVRR2],0)+ISNULL([VVR03],0)+ISNULL([VVR94],0)+ISNULL([VVR88],0)+ISNULL([VVRR1],0))-(ISNULL([VVR93],0)+ISNULL([VVR92],0)+ISNULL([VVR89],0)+ISNULL([VVR70],0))) AS sales
-        FROM [APAC_DATA_REPO].[dbo].[PEA_CE10COC]
+
+FROM [APAC_DATA_REPO]
+.[dbo].[PEA_CE10COC]
         WHERE [LAND1] ='AU'
-            AND CAST([BUDAT] AS DATETIME) < '2021-01-01'
-            AND CAST([BUDAT] AS DATETIME) >= '2019-01-01'
+
+AND CAST
+([BUDAT] AS DATETIME) < '{end_date}'
+            AND CAST
+([BUDAT] AS DATETIME) >= '{start_date}'
             AND [PALEDGER] = 2
             AND [AUART] NOT LIKE '0CT%'
     )

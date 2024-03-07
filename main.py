@@ -1,74 +1,126 @@
+"""
+This script performs predictive purchase analysis using time series modeling and classification.
+It retrieves data from a SQL database, applies time series prediction models, and performs classification based on various features.
+The script also includes functions for data cleaning, feature engineering, and scoring.
+
+The main steps of the script are as follows:
+1. Import necessary libraries and modules.
+2. Set the current date and minimum date for data retrieval.
+3. Load the time series prediction model and classification model from pickle files.
+4. Define a function to retrieve data from a SQL database.
+5. Read an SQL file and replace placeholders with the current and minimum dates.
+6. Retrieve data from the SQL database using the modified SQL query.
+7. Clean the retrieved data and create lag features.
+8. Save the cleaned data to a pickle file.
+9. Apply time series prediction to the cleaned data using the time series model.
+10. Save the predicted time series data to a pickle file.
+11. Apply classification to the cleaned data and predicted time series data using the classification model.
+12. Create a scoring dataframe based on the classification results.
+13. Perform Fourier analysis on the predicted values to extract seasonal patterns and other features.
+14. Merge the scoring dataframe with the Fourier analysis results.
+15. Apply scoring rules to calculate scores for the classification features.
+16. Save the final scoring dataframe.
+"""
+
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from tqdm import tqdm
 import modeling_class
-# import modeling_explain
+from sqlalchemy import create_engine, text
 import helper
 import modeling_ts
 import dill
 import numpy as np
 import pandas as pd
 from scipy import stats
+import pyodbc
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import acf
+import re
 # from scipy.signal import correlate
 
-current_date = datetime.today() - relativedelta(days=40)
+
+new_date = datetime.today() - relativedelta(months=1)
+new_date = new_date.replace(day=1)
+report_date = new_date.strftime("%Y%m")
+new_date = new_date.strftime("%Y-%m") + "-01"
+current_date = datetime.today().replace(day=1)
+# current_date = current_date - relativedelta(days=1)
 min_date = current_date - relativedelta(months=24)
 report_date = current_date.strftime("%Y%m") + "30"
-current_month = current_date.strftime("%Y-%m")
+current_month = current_date
 current_date = current_date.strftime("%Y-%m") + "-01"
 min_date = min_date.strftime("%Y-%m") + "-01"
-current_date = "2023-11-01"
+# current_date = "2023-11-01"
 # For 1st stage - ts prediction
 with open("predictor12.pkl", "rb") as f:
     model_ts = dill.load(f)
 
-# For 2nd stage - ts across period
-with open("model_list3c.pkl", "rb") as f:
+# For 2nd stage - ts across period #model_lFor 2
+with open("model_list6.pkl", "rb") as f:
     model_class = dill.load(f)
 
-with open("gbm_explainer.pkl", "rb") as f:
+with open("gbm_explainer2.pkl", "rb") as f:
     gbm_explainer = dill.load(f)
 
-dtypes = {"CUSTOMER_NUMBER": str}
-df = pd.read_csv("data/data_8.csv")
-df["POSTING_DATE"] = pd.to_datetime(df["POSTING_DATE"])
-# df.head()
-len(df)
-print(df["POSTING_DATE"].max())
-df = df[df["POSTING_DATE"]<='2023-11-01']
-df = df[df["POSTING_DATE"]>='2022-11-01']
+def get_data(sql):
+    # Old method -- using pyodbc -- deprecated
+    conn = pyodbc.connect(
+        """DRIVER={ODBC Driver 17 for SQL Server};
+        SERVER=mlggae00sql005.linde.lds.grp,1433;
+        DATABASE=APAC_DATA_REPO;
+        UID=Customers_at_Risk_PRD;
+        PWD=sTzmxZ3oLKRt64QoJ;
+        Encrypt=no;
+        TrustServerCertificate=no;
+        Connection Timeout=300;
+        ColumnEncryption=Enabled;
+        DisableCertificateVerification=yes;"""
+    )
+    df = pd.read_sql(sql, conn)
+    conn.close()
+    return df
+
+fd = open(r'sql\raw_data2.sql', 'r')
+sqlFile = fd.read()
+fd.close()
+
+sqlFile = re.sub('{start_date}', min_date, sqlFile)
+sqlFile = re.sub('{end_date}', current_date, sqlFile)
+
+# date_max = get_data(f"SELECT MAX(CAST([BUDAT] AS DATETIME)) TIME FROM [APAC_DATA_REPO].[dbo].[PEA_CE10COC] WHERE CAST([BUDAT] AS DATETIME) <= '{current_date}' AND CAST([BUDAT] AS DATETIME) >= '{min_date}' AND [LAND1] ='AU'")
+# print(date_max)
+df = get_data(sqlFile)
+df.to_pickle('df_new.pkl')
 
 # df.columns
 
 df = helper.clean_data(df)
+print('Finished cleaning data')
 df = helper.create_lags(df)
+print('Finished creating lag')
 df.to_pickle('df.pkl')
-df = pd.read_pickle('df.pkl')
+# df = pd.read_pickle('df.pkl')
 
 
-df_time = modeling_ts.predict_timeseries(df, model_ts, start_date=current_date)
+df_time = modeling_ts.predict_timeseries(df, model_ts, start_date=new_date)
 df_time.to_pickle('df_time.pkl')
-df_time = pd.read_pickle('df_time.pkl')
+print('Finished modeling_ts')
+# df_time = pd.read_pickle('df_time.pkl')
 
 # df_time = df_time2.copy()
 df_time.reset_index(inplace=True)
-df_time["CUSTOMER_SHIPTO"][0]
 
-df_time[df_time["CUSTOMER_SHIPTO"] == "PEA300.AU10.0001628667"]
-
-# df_time = pd.read_csv("temp.csv")
 df_p = modeling_class.predict_classifer(
-    df, df_time, model_class,gbm_explainer,
-    start_date=current_date,
-    percent_1=0.05,
-    percent_2=0.03,
-    max_cch=5,
-    PRODUCT_SALES=1500
+    df, df_time, model_class,
+    start_date=new_date
 )
-
-
+df_explainer = df_p.copy()
+df_p = df_p[
+        ["CUSTOMER_SHIPTO", "POSTING_DATE", "CCH", "CCH_lag_1", "CCH_lag_2",
+        "slope", "percent_decline", "max_cch", "p_value", "cross_zero", "drop",
+        "pred1","pred2","pred3","pred4","pred5","pred6"]
+    ]
 
 def make_scoring(df_p,df):
     df_out = pd.melt(
@@ -79,18 +131,28 @@ def make_scoring(df_p,df):
         value_name="value",
     )
 
-    for i in tqdm(range(len(df_out)), desc="Renaming pred period as date"):
-        posting_date = df_out.iloc[i]["POSTING_DATE"]  # convert to datetime object
-        pred_period = df_out.iloc[i]["pred"]
+    # for i in tqdm(range(len(df_out)), desc="Renaming pred period as date"):
+    #     posting_date = df_out.iloc[i]["POSTING_DATE"]  # convert to datetime object
+    #     pred_period = df_out.iloc[i]["pred"]
 
-        if pred_period.startswith("pred"):
-            pred_num = int(
-                pred_period[4:]
-            )  # extract the number from the pred period string
-            pred_date = posting_date + pd.DateOffset(
-                months=pred_num
-            )  # add the offset to the posting date
-            df_out.at[i, "PRED_DATE"] = pred_date.strftime("%Y-%m")
+    #     if pred_period.startswith("pred"):
+    #         pred_num = int(
+    #             pred_period[4:]
+    #         )  # extract the number from the pred period string
+    #         pred_date = posting_date + pd.DateOffset(
+    #             months=pred_num
+    #         )  # add the offset to the posting date
+    #         df_out.at[i, "PRED_DATE"] = pred_date.strftime("%Y-%m")
+    # Convert 'pred' column to integer type after stripping 'pred' from the start
+    df_out['pred_num'] = df_out['pred'].str.slice(start=4).astype(int)
+    # Convert 'POSTING_DATE' to datetime if it's not already
+    df_out['POSTING_DATE'] = pd.to_datetime(df_out['POSTING_DATE'])
+    # Use vectorized operation to add offset to 'POSTING_DATE'
+    # df_out['PRED_DATE'] = (df_out['POSTING_DATE'] + pd.offsets.MonthBegin(df_out['pred_num'])).dt.strftime('%Y-%m')
+    df_out['PRED_DATE'] = df_out.apply(lambda row: (row['POSTING_DATE'] + pd.offsets.MonthBegin(int(row['pred_num']))).strftime('%Y-%m'), axis=1)
+    # Filter rows where 'pred' starts with 'pred'
+    df_out = df_out[df_out['pred'].str.startswith('pred')]
+    ###############
 
     df_out.rename(
         columns={
@@ -220,7 +282,7 @@ def apply_classifier(row):
         slope_t = "increase"
     elif row["percent_decline"] >= -0.05:
         slope_score = 2
-        slope_t = "stay the same"
+        slope_t = "decrease"
     elif row["percent_decline"] >= -0.1:
         slope_score = 4
         slope_t = "decrease"
@@ -314,16 +376,16 @@ def apply_classifier(row):
         cch = 4
     else:
         cch = 2
-    risk_score = cch * (slope_score + magnitute_score + period) / (1.0+1.5+0.3)
+    risk_score = cch * (slope_score + magnitute_score + period) / (1.0+1.0+0.3)
 
     if row["cross_zero"] > 0:
         crossing = f' Churn likely in {int(row["cross_zero"])} mth. '
     else:
         crossing = ""
 
-    risk_value = f"""{report_date}: Current CCH:{int(row["CCH"])}, Last mth CCH:{int(row["CCH_lag_1"])}, 6 mth CCH likely {slope_t} within {int(np.abs(row["percent_decline"])*100)}%.{crossing}{row["explainer"]} {period_t} pred purch of {abs(period)} mth."""
-
     risk_score = (risk_score + 100) / 2
+
+    risk_value = f"""{report_date}: Current CCH:{int(row["CCH"])}, Last mth CCH:{int(row["CCH_lag_1"])}, 6 mth CCH likely {slope_t} within {int(np.abs(row["percent_decline"])*100)}%.{crossing} {period_t} pred purch of {abs(period)} mth."""
 
     return round(risk_score, 0), risk_value
 
@@ -334,8 +396,36 @@ df3[["risk_score", "risk_value"]] = df3.apply(
 )
 
 
-
 df3 = df3[['CUSTOMER_SHIPTO',"risk_score", "risk_value"]]
-len(df3)
+df3["risk_score"].hist()
+df4 = df3[df3["risk_score"]>65]
 
-df3.to_csv("temp_4.csv")
+df_explainer = df_explainer[df_explainer['CUSTOMER_SHIPTO'].isin(df4.CUSTOMER_SHIPTO)]
+df5 = modeling_class.explainer(df_explainer, gbm_explainer)
+
+df5 = df5.merge(df4, how='left')
+
+def apply_words(row):
+    return f"""{row["risk_value"]} {row["explainer"]}"""
+
+df5["risk_value"] = df5.apply(
+    apply_words, axis=1, result_type="expand"
+)
+
+df5 = df5[['CUSTOMER_SHIPTO',"risk_score", "risk_value"]]
+
+
+df5.to_csv("temp_5.csv")
+df4 = df3[df3["risk_score"]<45]
+df4.to_csv("temp_6.csv")
+
+len(df4)
+len(df5)
+
+# df_time2[df_time2['CUSTOMER_SHIPTO']=='PEA300.AU10.0001315838']
+# df_time2 = df_time.reset_index()
+
+df5 = re.sub('{end_date}', current_date, sqlFile)
+
+# Assuming df is your DataFrame and 'column_name' is the column where you want to make replacements
+df5['risk_value'] = df5['risk_value'].str.replace(r'2024-02:', r'202402:', regex=True)

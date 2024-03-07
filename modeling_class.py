@@ -60,6 +60,10 @@ variables = [
         'PROD_SMLLD2_SALE', # NOT ADDED
         'PROD_1MEDLE_SALE', # NOT ADDED
         'PROD_SMLLD_SALE', # NOT ADDED
+        # 'PROD_4MEDLE2_SALE', # NOT ADDED
+        # 'PROD_8LRGLG_SALE', # NOT ADDED
+        # 'MONTHLY_RENT', # NOT ADDED
+        # 'ANNUAL_RENT', # NOT ADDED
         # "DAILY_RENT_lag_1",
         # "DAILY_RENT_lag_2",
         # "DAILY_RENT_lag_3",
@@ -133,9 +137,9 @@ def train_classifer(df):
                 'metric':['l1','l2'],
                 "tree":"voting",
                 "learning_rate": 0.005,
-                'num_iterations':3000,
+                'num_iterations':8000,
                 'early_stopping_round':5,
-                'max_bin':500,
+                'max_bin':600,
                 # "max_depth": 3,
                 # "bagging_fraction":0.6,
                 'feature_fraction':0.8,
@@ -159,16 +163,19 @@ def train_classifer(df):
 
     model = [y1_pred, y2_pred, y3_pred, y4_pred, y5_pred, y6_pred]
 
-    print(mean_squared_error(y1, y1_pred.predict(X)))
-    print(mean_squared_error(y3, y3_pred.predict(X)))
-    print(mean_squared_error(y6, y6_pred.predict(X)))
-    # with open("model_list6.pkl", "wb") as f:
-    #     dill.dump(model, f)
+    print(mean_squared_error(y1, model[0].predict(X)))
+    print(mean_squared_error(y3, model[2].predict(X)))
+    print(mean_squared_error(y6, model[5].predict(X)))
+    with open("model_list6.pkl", "wb") as f:
+        dill.dump(model, f)
+
+    with open("model_list6.pkl", "rb") as f:
+        model = dill.load(f)
     return model
 
 def calculate_slope(row):
     data = [
-        row["CCH_lag_2"],
+        # row["CCH_lag_2"],
         row["CCH_lag_1"],
         row["CCH"],
         row["pred1"],
@@ -185,7 +192,8 @@ def calculate_slope(row):
         period_to_cross_zero = abs(intercept / slope)
     else:
         period_to_cross_zero = None
-    max_cch = max([row["CCH_lag_2"], row["CCH_lag_1"], row["CCH"]])
+    # max_cch = max([row["CCH_lag_2"], row["CCH_lag_1"], row["CCH"]])
+    max_cch = max( row["CCH_lag_1"],[row["CCH"]])
     if max_cch != 0:
         percent_decline = slope / max_cch
     else:
@@ -196,18 +204,16 @@ def calculate_slope(row):
     return slope, percent_decline, max_cch, p_value, period_to_cross_zero, drop
 
 
-def predict_classifer(df_long, df_wide, model,gbm_explainer,
-                    start_date="2022-06-01",
-                    percent_1=0.15,
-                    percent_2=0.15,
-                    max_cch=5,
-                    PRODUCT_SALES=5000):
+def predict_classifer(df_long, df_wide, model,
+                    start_date="2022-06-01"):
     tqdm.pandas()
     df_wide["POSTING_DATE"] = df_wide["PREDICTION_DATE"]
     df_wide["POSTING_DATE"] = pd.to_datetime(df_wide["POSTING_DATE"])
     df_long["POSTING_DATE"] = pd.to_datetime(df_long["POSTING_DATE"])
-    df_wide = df_wide.merge(df_long, on=["CUSTOMER_SHIPTO", "POSTING_DATE"])
     df_wide = df_wide[df_wide["POSTING_DATE"] == start_date]
+    df_long = df_long[df_long["POSTING_DATE"] == df_long["POSTING_DATE"].max()]
+    df_long.drop(['POSTING_DATE'], axis=1, inplace=True)
+    df_wide = df_wide.merge(df_long, on=["CUSTOMER_SHIPTO"], how='inner')
     ### Combining the fields()
     for period in tqdm(range(1, 7)):
         column_name = f"period_{period}_uncertainty"
@@ -217,22 +223,25 @@ def predict_classifer(df_long, df_wide, model,gbm_explainer,
 
     X = df_wide[variables]
 
-    df_wide["pred1"] = np.maximum(model[0].predict(X), -5)
-    df_wide["pred2"] = np.maximum(model[1].predict(X), -5)
-    df_wide["pred3"] = np.maximum(model[2].predict(X), -5)
-    df_wide["pred4"] = np.maximum(model[3].predict(X), -5)
-    df_wide["pred5"] = np.maximum(model[4].predict(X), -5)
-    df_wide["pred6"] = np.maximum(model[5].predict(X), -5)
+    df_wide["pred1"] = model[0].predict(X)
+    df_wide["pred2"] = model[1].predict(X)
+    df_wide["pred3"] = model[2].predict(X)
+    df_wide["pred4"] = model[3].predict(X)
+    df_wide["pred5"] = model[4].predict(X)
+    df_wide["pred6"] = model[5].predict(X)
 
     df_wide[["slope", "percent_decline", "max_cch", "p_value", "cross_zero", "drop"]] = df_wide.apply(
         calculate_slope, axis=1, result_type="expand"
     )
     # df_out['explainer'] = X.progress_apply(lambda row: explainer_d(gbm_explainer, row), axis=1)
+
+    return df_wide
+
+def explainer(df_wide, gbm_explainer):
+    X = df_wide[variables]
     def conditional_apply(row):
         corresponding_row = df_wide.loc[row.name]
-        if (abs(corresponding_row['percent_decline']) >= percent_1 and corresponding_row['PRODUCT_SALES'] >= PRODUCT_SALES) or \
-            (abs(corresponding_row['percent_decline']) >= percent_2 and corresponding_row['max_cch'] >= max_cch) or \
-            abs(corresponding_row['drop']) >= 3:
+        if (corresponding_row['max_cch'] >= 0):
             return explainer_d(gbm_explainer, row)
         else:
             return ''
@@ -245,15 +254,17 @@ def predict_classifer(df_long, df_wide, model,gbm_explainer,
     return df_out
 
 def build_explainer(y3_pred,X, y3):
-    sample_size = 5000
+    sample_size = 500
     sample_indices = np.random.choice(X.index, size=sample_size, replace=False)
     X_sample = X.loc[sample_indices]
     y3_sample = y3.loc[sample_indices]
     gbm_explainer = dx.Explainer(y3_pred, X_sample, y3_sample, label="gbm")
+    with open("gbm_explainer2.pkl", "wb") as f:
+        dill.dump(gbm_explainer, f)
     return gbm_explainer
 
 def explainer_d(gbm_explainer, instance):
-    prediction_breakdown = gbm_explainer.predict_parts(instance, B=5, N=500, type='break_down').result
+    prediction_breakdown = gbm_explainer.predict_parts(instance, B=5, N=10, type='break_down').result
     replacements = {
         r'period_\d+_' : '',
         r'_lag_\d' : '',
@@ -262,20 +273,37 @@ def explainer_d(gbm_explainer, instance):
         r'cv2' : 'Cyclicality',
         r'_\d' : '',
         r'sample_mean' : 'Trend',
-        r'ROLL_MEAN' : 'Past_CCH',
+        r'ROLL_MEAN' : 'CCH',
         r'uncertainty' : 'Uncertainty',
-        r'REFERENCE_ITEMS' : 'Cnt_Items',
         r'CNTD_RENTAL_POSTING_DATE': 'Rental_Freq',
-        r'PROD_LRGLG_SALE' : 'Prod_1LRGLG',
-        r'PROD_5MEDLE_SALE' : 'Prod_15MEDLE'
+        r'PROD_LRGLG_SALE' : 'Product_Type',
+        r'PROD_5MEDLE_SALE' : 'Product_Type',
+        r'PROD_1MEDLE_SALE' : 'Product_Type',
+        r'PROD_SMLLD_SALE' : 'Product_Type',
+        r'PROD_4MEDLE2_SALE' : 'Product_Type',
+        r'PROD_8LRGLG_SALE' : 'Product_Type',
+        r'RENTAL_BILLED_QTY' : 'Rental',
+        r'RENTAL_SALES': 'Rental',
+        r'DAILY_RENT': 'Rent_Collect_Period',
+        r'MONTHLY_RENT':'Rent_Collect_Period',
+        r'ANNUAL_RENT':'Rent_Collection_Freq',
+        r'REFERENCE_ITEMS' : 'Interactions',
+        r'POSTING_PERIOD': 'Interactions',
+        r'CNT_POSTING_DATE': 'Interactions',
+        r'DAY_BETWEEN_POSTING': 'Interactions',
+        r'AVG_DOCUMENT_ISSUE_DIFF': 'Delays',
+        r'AVG_POST_ISSUE_DIFF': 'Delays',
+        r'PRODUCT_SALES' : "Sales",
+        r'SALE_QTY' : "Sales",
     }
     prediction_breakdown['variable_name'] = prediction_breakdown['variable_name'].replace(replacements, regex=True)
     prediction_breakdown = prediction_breakdown.groupby('variable_name')['contribution'].sum().abs().reset_index()
-    prediction_breakdown = prediction_breakdown[~prediction_breakdown['variable_name'].str.contains('^$|intercept|Trend|Uncertainty')]
+    prediction_breakdown = prediction_breakdown[~prediction_breakdown['variable_name'].str.contains('^$|intercept|Trend|Uncertainty|Holidays')]
     top_contributions = prediction_breakdown.nlargest(3, 'contribution')['variable_name'].tolist()
     string = f"This is due to {top_contributions[0]}, {top_contributions[1]}, and {top_contributions[2]}. "
 
     return string
 
-
+# for i in range(108260,108270):
+#     print(explainer_d(gbm_explainer,X.iloc[i]))
 # df_new = df_wide[["CUSTOMER_SHIPTO","pred1","CCH_shift_1","pred2","CCH_shift_2","pred3","CCH_shift_3","pred4","CCH_shift_4","pred5","CCH_shift_5","pred6","CCH_shift_6"]]
