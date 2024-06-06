@@ -7,33 +7,9 @@ from scipy import stats
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+import polars  as pl
+from pykalman import KalmanFilter
 import re
-
-
-# def import_data(df, sql, min_date):
-#     """Import in the sql query and set the min_date (optional)
-#     default to 24 months"""
-#     if not min_date:
-#         current_date = datetime.today() - relativedelta(days=10)
-#         min_date = (current_date - relativedelta(months=24)).strftime("%Y-%m-01")
-
-#     with open("./sql/raw_data.sql", "r") as file:
-#         sql = file.read()
-#     sql = re.sub(r"min_date_set", min_date, sql)
-
-#     connection_string = (
-#         "mssql+pyodbc://Customers_at_Risk_PRD:sTzmxZ3oLKRt64QoJ@mlggae00sql005.linde.lds.grp,1433/APAC_DATA_REPO?"
-#         "driver=ODBC+Driver+17+for+SQL+Server&"
-#         "Encrypt=no&"
-#         "TrustServerCertificate=no&"
-#         "Connection+Timeout=300&"
-#         "ColumnEncryption=Enabled&"
-#         "DisableCertificateVerification=yes"
-#     )
-#     engine = create_engine(connection_string)
-#     with engine.connect() as conn:
-#         df = pd.read_sql_query(text(sql), conn)
-#     return df
 
 
 def create_holidays(df):
@@ -48,41 +24,94 @@ def create_holidays(df):
     holidays_df["POSTING_DATE"] = (
         holidays_df["Date"].dt.to_period("M").dt.to_timestamp()
     )
+    holidays_df = pl.from_pandas(holidays_df)
+    df = pl.from_pandas(df)
+
     holidays_count = (
-        holidays_df.groupby(["POSTING_DATE"]).size().reset_index(name="Holidays")
+        holidays_df.groupby("POSTING_DATE")
+        .agg(pl.count().alias("Holidays"))
     )
 
-    df = pd.merge(df, holidays_count, how="left", on=["POSTING_DATE"])
-    df["Holidays"] = df["Holidays"].fillna(0)
-
-    # Create smooth holidays
-    sigma = 1.5  # This is the standard deviation for the Gaussian kernel.
-
-    def smooth(group):
-        return gaussian_filter1d(group, sigma)
-
-    df["Smoothed_Holidays"] = df.groupby("CUSTOMER_SHIPTO")["Holidays"].transform(
-        smooth
+    df = df.join(
+        holidays_count,
+        on="POSTING_DATE",
+        how="left"
     )
+    df = df.with_columns(
+        pl.col("Holidays").fill_null(0)
+    )
+    print("Holidays filled")
+    df = df.sort("POSTING_DATE")
+    print('Getting KS')
+    def apply_ks_filter(s: pl.Series) -> pl.Series:
+        s_filled = s.fill_null(value=0)
+        initial_state = s_filled[0]
+        kf = KalmanFilter(transition_matrices=[1],
+                        observation_matrices=[1],
+                        initial_state_mean=initial_state,
+                        initial_state_covariance=1,
+                        observation_covariance=1,
+                        transition_covariance=0.01)
+        state_means, _ = kf.smooth(s_filled.to_numpy())
+        return pl.Series(state_means.flatten())
+    df = df.groupby("CUSTOMER_SHIPTO").apply(
+        lambda group: group.with_columns(
+            apply_ks_filter(group["CCH"]).alias("KS_filtered")  # Name the result column "KS_filtered"
+        )
+    )
+    df = df.with_columns(
+        pl.col('KS_filtered').diff().over('CUSTOMER_SHIPTO').alias('KSD')
+    )
+    print('Getting cv2')
+    def square_std(s: pl.Series) -> pl.Series:
+        std = s.std()
+        return pl.Series([0 if std is None else std ** 2])
+    # Apply the function to a rolling window of data
+    df = df.groupby("CUSTOMER_SHIPTO").apply(
+        lambda group: group.with_columns(
+            pl.col("CCH").rolling_apply(square_std, window_size=12).alias("cv2")
+        )
+    )
+    print('Getting cv2 for sales')
+    df = df.groupby("CUSTOMER_SHIPTO").apply(
+        lambda group: group.with_columns(
+            pl.col("SALE_QTY").rolling_apply(square_std, window_size=12).alias("cv2_sales")
+        )
+    )
+    print('Getting apply_periodicity')
+    def apply_periodicity(s: pl.Series) -> pl.Series:
+        try:
+            # Convert Polars Series to NumPy array, apply filter and convert back to Polars Series
+            smoothed_measurements = gaussian_filter1d(s.to_numpy(), sigma=1.5)
+            return pl.Series(smoothed_measurements)
+        except Exception as e:
+            # Log the exception if needed
+            print(f"An error occurred: {e}")
+            return pl.Series([0]*len(s))
 
-    # Assign sqr standard variation of CCH to each row
-    def squared_std(x):
-        return np.std(x) ** 2
-
-    grouped = df.groupby("CUSTOMER_SHIPTO").expanding()
-    cv2 = grouped["CCH"].apply(squared_std, raw=True).reset_index(level=0, drop=True)
-    df = df.assign(cv2=cv2)
-
-    return df
+    # Apply the function to each group
+    df = df.groupby("CUSTOMER_SHIPTO").apply(
+        lambda group: group.with_columns(
+            pl.col("CCH").rolling_apply(apply_periodicity, window_size=12).alias("period")
+        )
+    )
+    print('Getting apply_smooth')
+    def apply_smooth(s: pl.Series) -> pl.Series:
+        return s.rolling_mean(window_size=12, min_periods=1)
+    df = df.groupby("CUSTOMER_SHIPTO").apply(
+        lambda group: group.with_columns(
+            apply_smooth(pl.col("Holidays")).alias("Smoothed_Holidays")
+        )
+    )
+    return df.to_pandas()
 
 
 def clean_data(df):
     df.fillna(0, inplace=True)
-    # df["CUSTOMER_SHIPTO"] = df.apply(
-    #     lambda row: f"{row['CUSTOMER_NUMBER']}_{row['SHIP_TO']}", axis=1
-    # )
     df["CUSTOMER_SHIPTO"] = df["CUSTOMER_NUMBER"].astype(str)
-    df["POSTING_DATE"] = pd.to_datetime(df["POSTING_DATE"])
+    df["POSTING_DATE"] = pd.to_datetime(df["POSTING_DATE"]).dt.to_period('M').dt.to_timestamp()
+
+    df = pl.from_pandas(df)
     numeric_col = [
         "CNTD_RENTAL_POSTING_DATE",
         "CNTD_POSTING_DATE",
@@ -120,54 +149,58 @@ def clean_data(df):
         "PROD_8LRGLG_SALE",
     ]
 
+    # for col in numeric_col:
+    #     df[col] = pd.to_numeric(df[col], errors="coerce")
     for col in numeric_col:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
+        df = df.with_columns(pl.col(col).cast(pl.Float64))
+    # cat_col = ["INDUSTRY", "PLANT", "INDUSTRY_SUBLEVEL"]
+    # df_cat = df[["CUSTOMER_SHIPTO", "POSTING_DATE"] + cat_col]
     cat_col = ["INDUSTRY", "PLANT", "INDUSTRY_SUBLEVEL"]
-    df_cat = df[["CUSTOMER_SHIPTO", "POSTING_DATE"] + cat_col]
-
     ##############################
-    df_grouped = (
-        df.groupby(["CUSTOMER_SHIPTO", "POSTING_DATE"])[numeric_col].sum().reset_index()
-    )
-
-    global_max_date = df["POSTING_DATE"].max()
-    global_min_date = df["POSTING_DATE"].min()
-
-    # Create a new dataframe with a multi-index of 'SHIP_TO' and all dates from min to max for each 'SHIP_TO'
-    idx = pd.MultiIndex.from_product(
-        [
-            df_grouped["CUSTOMER_SHIPTO"].unique(),
-            pd.date_range(start=global_min_date, end=global_max_date, freq="MS"),
-        ],
-        names=["CUSTOMER_SHIPTO", "POSTING_DATE"],
-    )
-    # Reindex the original DataFrame with the new MultiIndex
-    df_full = df_grouped.set_index(["CUSTOMER_SHIPTO", "POSTING_DATE"]).reindex(idx)
-    df_full = df_full.reset_index()
-    df_full.fillna(0, inplace=True)
-
-    ##############################
-    df_full = pd.merge(df_full, df_cat)
-    # df_full["INDUSTRY"] = df_full.groupby("CUSTOMER_SHIPTO")["INDUSTRY"].transform(
-    #     lambda x: x.ffill().bfill()
+    # df_grouped = (
+    #     df.groupby(["CUSTOMER_SHIPTO", "POSTING_DATE"])[numeric_col].sum().reset_index()
     # )
-    # df_full["PLANT"] = df_full.groupby("CUSTOMER_SHIPTO")["PLANT"].transform(
-    #     lambda x: x.ffill().bfill()
-    # )
-    # df_full["INDUSTRY_SUBLEVEL"] = df_full.groupby("CUSTOMER_SHIPTO")[
-    #     "INDUSTRY_SUBLEVEL"
-    # ].transform(lambda x: x.ffill().bfill())
-    df_full.fillna(0, inplace=True)
+    df_grouped = df.groupby(["CUSTOMER_SHIPTO", "POSTING_DATE"]).agg(
+        [pl.sum(col).alias(col) for col in numeric_col]
+    )
+    df = df.sort("POSTING_DATE")
+    # Find global max and min dates
+    global_max_date = df['POSTING_DATE'].max()
+    global_min_date = df['POSTING_DATE'].min()
 
-    #####################
-    # Add Holidays
+    all_dates = pd.date_range(start=global_min_date, end=global_max_date, freq='MS')
+    all_months_df = pd.DataFrame(all_dates, columns=["POSTING_DATE"])
+
+    # Convert the all_months_df DataFrame to Polars
+    pl_all_months_df = pl.from_pandas(all_months_df)
+
+    # Get the unique 'CUSTOMER_SHIPTO' values as a Polars Series
+    unique_ship_to = df_grouped.select("CUSTOMER_SHIPTO").unique()
+
+    # Create all combinations of 'CUSTOMER_SHIPTO' and 'POSTING_DATE' using a cross join
+    all_combinations = unique_ship_to.join(pl_all_months_df, how="cross")
+
+    # Left join the grouped data with all_combinations
+    df_full = all_combinations.join(df_grouped, on=["CUSTOMER_SHIPTO", "POSTING_DATE"], how="left")
+
+    # Fill all na columns with 0
+    df_full = df_full.fill_null(0)
+    df_full = df_full.to_pandas()
     df_full = create_holidays(df_full)
-
     return df_full
+
+def pl_groupby(df, group_cols, target_col, new_col, window_size):
+    # Convert the pandas DataFrame to a polars DataFrame
+    df = pl.from_pandas(df)
+    df = df.sort(group_cols + [target_col])
+    rolling_mean_expr = pl.col(target_col).rolling_mean(window_size).over(group_cols).alias(new_col)
+    # Use the lazy API to add the rolling mean as a new column
+    df = df.lazy().with_columns(rolling_mean_expr).collect()
+    return df.to_pandas()
 
 
 def create_lags(df):
+    df.fillna(0, inplace=True)
     col_to_lag = [
         "CCH",
         "RENTAL_SALES",
@@ -177,23 +210,24 @@ def create_lags(df):
         "DAILY_RENT",
         "CNT_POSTING_DATE",
         "PROD_LRGLG_SALE",
+        'Holidays',
         "Smoothed_Holidays",
+        "KSD"
     ]
+    # sort by POSTING DATE
+    df = df.sort_values(["CUSTOMER_SHIPTO", "POSTING_DATE"])
     for j in tqdm(col_to_lag):
-        for i in range(3):
+        for i in range(6):
             df[f"{j}_lag_{i+1}"] = df[f"{j}"].shift(1 + i)
 
-    df["ROLL_MEAN_3"] = df.groupby("CUSTOMER_SHIPTO")["CCH"].transform(
-        lambda x: x.rolling(3, min_periods=0).mean()
-    )
-    df["ROLL_MEAN_6"] = df.groupby("CUSTOMER_SHIPTO")["CCH"].transform(
-        lambda x: x.rolling(6, min_periods=0).mean()
-    )
+    df = pl_groupby(df, ["CUSTOMER_SHIPTO"], "CCH", "ROLL_MEAN_3", 3)
+    df = pl_groupby(df, ["CUSTOMER_SHIPTO"], "CCH", "ROLL_MEAN_6", 6)
+    df = pl.from_pandas(df)
     for i in range(6):
-        df[f"CCH_shift_{i+1}"] = df["CCH"].shift(-1 - i)
+        df = df.with_columns(pl.col("CCH").shift(-1 - i).alias(f"CCH_shift_{i+1}"))
     for i in range(6):
-        df[f"Smoothed_Holidays_shift_{i+1}"] = df["Smoothed_Holidays"].shift(-1 - i)
-    return df
+        df = df.with_columns(pl.col("Smoothed_Holidays").shift(-1 - i).alias(f"Smoothed_Holidays_shift_{i+1}"))
+    return df.to_pandas()
 
 def calculate_slope(row):
     data = [

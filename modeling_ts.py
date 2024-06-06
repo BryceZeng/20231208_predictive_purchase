@@ -10,6 +10,7 @@ from sklearn.preprocessing import LabelEncoder
 from tqdm import tqdm
 import numpy as np
 import pandas as pd
+import polars as pl
 
 
 def create_gluonts_dataset(df):
@@ -27,7 +28,7 @@ def create_gluonts_dataset(df):
             return group_to_dict(x)
 
         grouped = df.groupby("CUSTOMER_SHIPTO").apply(wrapped_group_to_dict)
-    return grouped.to_list()
+    return grouped
 
 
 # ---------------------------------------#
@@ -38,12 +39,15 @@ def train_timeseries(df):
     data = create_gluonts_dataset(df)
     training_data = ListDataset(data, freq="M")
     estimator = DeepAREstimator(
-        freq="MS",
+        freq="M",
         prediction_length=6,
-        num_layers=3,
-        num_cells=70,
-        dropout_rate=0.25,
-        trainer=Trainer(epochs=23, num_batches_per_epoch=3000, learning_rate=5e-5),
+        num_parallel_samples=500,
+        num_layers=2,
+        context_length=12,
+        dropoutcell_type='VariationalDropoutCell',
+        num_cells=40,
+        dropout_rate=0.05,
+        trainer=Trainer(epochs=33, num_batches_per_epoch=3000),
     )
     model = estimator.train(training_data=training_data)
     return model

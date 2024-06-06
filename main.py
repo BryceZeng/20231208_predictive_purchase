@@ -1,27 +1,3 @@
-"""
-This script performs predictive purchase analysis using time series modeling and classification.
-It retrieves data from a SQL database, applies time series prediction models, and performs classification based on various features.
-The script also includes functions for data cleaning, feature engineering, and scoring.
-
-The main steps of the script are as follows:
-1. Import necessary libraries and modules.
-2. Set the current date and minimum date for data retrieval.
-3. Load the time series prediction model and classification model from pickle files.
-4. Define a function to retrieve data from a SQL database.
-5. Read an SQL file and replace placeholders with the current and minimum dates.
-6. Retrieve data from the SQL database using the modified SQL query.
-7. Clean the retrieved data and create lag features.
-8. Save the cleaned data to a pickle file.
-9. Apply time series prediction to the cleaned data using the time series model.
-10. Save the predicted time series data to a pickle file.
-11. Apply classification to the cleaned data and predicted time series data using the classification model.
-12. Create a scoring dataframe based on the classification results.
-13. Perform Fourier analysis on the predicted values to extract seasonal patterns and other features.
-14. Merge the scoring dataframe with the Fourier analysis results.
-15. Apply scoring rules to calculate scores for the classification features.
-16. Save the final scoring dataframe.
-"""
-
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from tqdm import tqdm
@@ -36,7 +12,10 @@ from scipy import stats
 import pyodbc
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import acf
+import polars as pl
 import re
+from dateutil.parser import parse
+
 # from scipy.signal import correlate
 
 
@@ -47,20 +26,26 @@ new_date = new_date.strftime("%Y-%m") + "-01"
 current_date = datetime.today().replace(day=1)
 # current_date = current_date - relativedelta(days=1)
 min_date = current_date - relativedelta(months=24)
-report_date = current_date.strftime("%Y%m") + "30"
 current_month = current_date
 current_date = current_date.strftime("%Y-%m") + "-01"
 min_date = min_date.strftime("%Y-%m") + "-01"
 # current_date = "2023-11-01"
 # For 1st stage - ts prediction
-with open("predictor12.pkl", "rb") as f:
+# with open("predictor12.pkl", "rb") as f:
+#     model_ts = dill.load(f)
+
+with open("model3_ts.pkl", "rb") as f:
     model_ts = dill.load(f)
 
 # For 2nd stage - ts across period #model_lFor 2
-with open("model_list6.pkl", "rb") as f:
+# with open("model_list6.pkl", "rb") as f:
+#     model_class = dill.load(f)
+with open("model_list6_2024.pkl", "rb") as f:
     model_class = dill.load(f)
 
-with open("gbm_explainer2.pkl", "rb") as f:
+# with open("gbm_explainer2.pkl", "rb") as f:
+#     gbm_explainer = dill.load(f)
+with open("gbm_explainer_2024.pkl", "rb") as f:
     gbm_explainer = dill.load(f)
 
 def get_data(sql):
@@ -92,29 +77,87 @@ sqlFile = re.sub('{end_date}', current_date, sqlFile)
 # print(date_max)
 df = get_data(sqlFile)
 df.to_pickle('df_new.pkl')
-
-# df.columns
-
+# df = pd.read_pickle('df_new.pkl')
+object_columns = ['CUSTOMER_NUMBER', 'SHIP_TO', 'INDUSTRY', 'INDUSTRY_SUBLEVEL', 'PLANT', 'CUSTOMER_SHIPTO']
+for col in object_columns:
+    if col in df.columns:
+        df[col] = df[col].astype(str)
 df = helper.clean_data(df)
 print('Finished cleaning data')
 df = helper.create_lags(df)
+# create a column checking if there is a 12 preceeding period
+df['less12'] = df.groupby('CUSTOMER_SHIPTO')['POSTING_DATE'].transform(lambda x: x.shift(12))
+df['less12'] = df['less12'].notnull().astype(int)
 print('Finished creating lag')
-df.to_pickle('df.pkl')
-# df = pd.read_pickle('df.pkl')
 
+df.to_pickle('df.pkl')
+
+# df = pd.read_pickle('df.pkl')
 
 df_time = modeling_ts.predict_timeseries(df, model_ts, start_date=new_date)
 df_time.to_pickle('df_time.pkl')
 print('Finished modeling_ts')
 # df_time = pd.read_pickle('df_time.pkl')
 
-# df_time = df_time2.copy()
-df_time.reset_index(inplace=True)
+# create a list of MS date in 'yyyy-mm-01'
+# min_date = df['POSTING_DATE'].min()
+# max_date = df['POSTING_DATE'].max()
+# date_object = parse(f'{max_date}-01')
+# max_date = date_object - relativedelta(months=4)
+# date_object = parse(f'{min_date}-01')
+# min_date = date_object + relativedelta(months=6)
+
+# list_date = pd.date_range(start=min_date.strftime('%Y-%m-%d'), end=max_date.strftime('%Y-%m-%d'), freq="MS").strftime("%Y-%m-%d")
+
+# # randomly select 30% of distinct Customer
+# from sklearn.model_selection import train_test_split
+# sample_customer = df["CUSTOMER_SHIPTO"].unique()
+# sample_customer = np.random.choice(sample_customer, int(len(sample_customer) * 0.65), replace=False)
+# df2 = df[df["CUSTOMER_SHIPTO"].isin(sample_customer)]
+# df2.reset_index(drop=True, inplace=True)
+# # loop and append df
+# df_time_all = pd.DataFrame()
+# for i in tqdm(list_date):
+#     df_time_2 = modeling_ts.predict_timeseries(df2, model_ts, start_date=i)
+#     df_time_all = df_time_all.append(df_time_2)
+# df_time_all.to_pickle('df_time_all.pkl')
+
+# df_time_all["POSTING_DATE"] = df_time_all["PREDICTION_DATE"]
+# df_time_all["POSTING_DATE"] = pd.to_datetime(df_time_all["POSTING_DATE"])
+# df["POSTING_DATE"] = pd.to_datetime(df["POSTING_DATE"])
+# df_all = df_time_all.merge(df, on=["CUSTOMER_SHIPTO","POSTING_DATE"], how='inner')
+# df_all.to_pickle('df_all.pkl')
 
 df_p = modeling_class.predict_classifer(
     df, df_time, model_class,
     start_date=new_date
 )
+
+df = pl.from_pandas(df)
+def calculate_period_diff(s: pl.Series) -> pl.Series:
+    return s.diff().fill_null(0)
+
+# Group by 'CUSTOMER_SHIPTO', calculate the difference in 'period'
+df = df.with_columns(
+    calculate_period_diff(pl.col("period")).over("CUSTOMER_SHIPTO").alias("period_diff")
+)
+
+# Create a conditional column based on the value of 'period_diff'
+df = df.with_columns(
+    pl.when(pl.col("period_diff") <= -3).then(-3)
+    .when(pl.col("period_diff") <= -2).then(-2)
+    .when(pl.col("period_diff") <= -1).then(-1)
+    .when(pl.col("period_diff") <= 0.5).then(0)
+    .when(pl.col("period_diff") <= 1.5).then(1)
+    .when(pl.col("period_diff") <= 2.5).then(2)
+    .when(pl.col("period_diff") > 2.5).then(3)
+    .otherwise(0)  # Default case if none of the above conditions are met
+    .alias("miss_period")
+)
+df = df.to_pandas()
+df['miss_period'].hist()
+
+print('Finished modeling class')
 df_explainer = df_p.copy()
 df_p = df_p[
         ["CUSTOMER_SHIPTO", "POSTING_DATE", "CCH", "CCH_lag_1", "CCH_lag_2",
@@ -130,20 +173,6 @@ def make_scoring(df_p,df):
         var_name="pred",
         value_name="value",
     )
-
-    # for i in tqdm(range(len(df_out)), desc="Renaming pred period as date"):
-    #     posting_date = df_out.iloc[i]["POSTING_DATE"]  # convert to datetime object
-    #     pred_period = df_out.iloc[i]["pred"]
-
-    #     if pred_period.startswith("pred"):
-    #         pred_num = int(
-    #             pred_period[4:]
-    #         )  # extract the number from the pred period string
-    #         pred_date = posting_date + pd.DateOffset(
-    #             months=pred_num
-    #         )  # add the offset to the posting date
-    #         df_out.at[i, "PRED_DATE"] = pred_date.strftime("%Y-%m")
-    # Convert 'pred' column to integer type after stripping 'pred' from the start
     df_out['pred_num'] = df_out['pred'].str.slice(start=4).astype(int)
     # Convert 'POSTING_DATE' to datetime if it's not already
     df_out['POSTING_DATE'] = pd.to_datetime(df_out['POSTING_DATE'])
@@ -178,42 +207,47 @@ def make_scoring(df_p,df):
 
 df2 = make_scoring(df_p,df)
 
-def find_transform(series):
-    series = series.dropna()
+def find_transform(series: pl.Series) -> tuple:
+    series = series.drop_nulls()
     series_len = len(series)
 
-    if series_len >= 18:
-        acf_values = acf(series[-12:], nlags=6)
-        acf_values2 = acf(series[-18:-6], nlags=6)
-    else:
-        acf_values = []
-        acf_values2 = []
+    # Initialize default values
+    best_period = best_period2 = diff_phase = amplitude_max = seasonal_shift = None
+    result = result2 = []
+    mean_before = mean_after = None
 
+    # Calculate ACF values only if series length is sufficient
+    if series_len >= 18:
+        acf_values = acf(series[-12:], nlags=6, fft=True)
+        acf_values2 = acf(series[-18:-6], nlags=6, fft=True)
+        best_period = np.argmax(acf_values[1:]) + 1
+        best_period2 = np.argmax(acf_values2[1:]) + 1
+    else:
+        acf_values = acf_values2 = np.array([])
+
+    # Calculate means based on series length
     if series_len <= 24:
-        middle_index = len(series) // 2
+        middle_index = series_len // 2
         mean_before = series[:middle_index].mean()
         mean_after = series[middle_index:].mean()
     else:
         mean_before = series[-24:-12].mean()
         mean_after = series[-12:].mean()
 
-    if len(acf_values) > 0 and len(acf_values2) > 0:
-        best_period = np.argmax(acf_values[1:]) + 1
-        best_period2 = np.argmax(acf_values2[1:]) + 1
+    # Convert to pandas Series to use statsmodels (no direct Polars equivalent)
+    series_pd = series.to_pandas()
 
-        result = seasonal_decompose(series[-12:], model="additive", period=best_period)
-        result2 = seasonal_decompose(series[-18:-6], model="additive", period=best_period2)
+    # Perform seasonal decomposition if ACF values are available
+    if np.any(acf_values) and np.any(acf_values2):
+        result = seasonal_decompose(series_pd[-12:], model="additive", period=best_period).seasonal
+        result2 = seasonal_decompose(series_pd[-18:-6], model="additive", period=best_period2).seasonal
 
         diff_phase = best_period - best_period2
-        amplitude_max = result2.seasonal.max()
-        seasonal_shift = np.argmax(
-            np.correlate(result.seasonal.tolist(), result2.seasonal.tolist(), mode='valid')
-        )
-        result = result.seasonal.tolist()
-        result2 = result2.seasonal.tolist()
-    else:
-        best_period = best_period2 = diff_phase = amplitude_max = seasonal_shift = None
-        result = result2 = []
+        amplitude_max = result2.max()
+        seasonal_shift = np.argmax(np.correlate(result, result2, mode='valid'))
+
+        result = result.tolist()
+        result2 = result2.tolist()
 
     return (
         diff_phase,
@@ -227,12 +261,17 @@ def find_transform(series):
         mean_after,
     )
 
+# Assuming df2 is a Polars DataFrame with the necessary structure
+df2 = pl.from_pandas(df2)
+# Apply the function to each group
+fourier_results = df2.groupby("CUSTOMER_SHIPTO").agg(pl.col("predicted").apply(find_transform))
+fourier_results = fourier_results.to_pandas()
 
-fourier_results = df2.groupby("CUSTOMER_SHIPTO")["predicted"].apply(find_transform)
 fourier_df = pd.DataFrame(
-    fourier_results.tolist(),
+    fourier_results,
     index=fourier_results.index,
     columns=[
+        'CUSTOMER_SHIPTO',
         "diff_phase",
         "amplitude",
         "period_after",
@@ -263,10 +302,10 @@ df3 = df3.replace([-np.inf, np.inf], -100)
 # get the yyyymmdd
 def apply_classifier(row):
     if row["percent_decline"] >= 0.25:
-        slope_score = -10
+        slope_score = -12
         slope_t = "increase"
     elif row["percent_decline"] >= 0.2:
-        slope_score = -10
+        slope_score = -12
         slope_t = "increase"
     elif row["percent_decline"] >= 0.15:
         slope_score = -10
@@ -287,16 +326,16 @@ def apply_classifier(row):
         slope_score = 4
         slope_t = "decrease"
     elif row["percent_decline"] >= -0.15:
-        slope_score = 6
-        slope_t = "decrease"
-    elif row["percent_decline"] >= -0.2:
         slope_score = 8
         slope_t = "decrease"
-    elif row["percent_decline"] >= -0.25:
+    elif row["percent_decline"] >= -0.2:
         slope_score = 10
         slope_t = "decrease"
+    elif row["percent_decline"] >= -0.25:
+        slope_score = 12
+        slope_t = "decrease"
     else:
-        slope_score = 10
+        slope_score = 12
         slope_t = "decrease"
 
     if row["magnitute_drop"] >= 0.5:
@@ -322,44 +361,44 @@ def apply_classifier(row):
     elif row["magnitute_drop"] >= 0:
         magnitute_score = 0
     elif row["magnitute_drop"] >= -0.05:
-        magnitute_score = 1
+        magnitute_score = 0.5
     elif row["magnitute_drop"] >= -0.1:
-        magnitute_score = 2
+        magnitute_score = 1
     elif row["magnitute_drop"] >= -0.15:
-        magnitute_score = 3
+        magnitute_score = 1.5
     elif row["magnitute_drop"] >= -0.2:
-        magnitute_score = 4
+        magnitute_score = 2
     elif row["magnitute_drop"] >= -0.25:
-        magnitute_score = 5
+        magnitute_score = 2.5
     elif row["magnitute_drop"] >= -0.3:
-        magnitute_score = 6
+        magnitute_score = 3
     elif row["magnitute_drop"] >= -0.35:
-        magnitute_score = 7
+        magnitute_score = 3.5
     elif row["magnitute_drop"] >= -0.4:
-        magnitute_score = 8
+        magnitute_score = 4
     elif row["magnitute_drop"] >= -0.45:
-        magnitute_score = 9
+        magnitute_score = 4.5
     elif row["magnitute_drop"] >= -0.5:
-        magnitute_score = 10
+        magnitute_score = 5
     else:
-        magnitute_score = 10
+        magnitute_score = 5
 
-    if row["miss_period"] >= 3:
+    if row["miss_period"] >= 1.5:
         period = -3
         period_t = "Increase"
-    elif row["miss_period"] >= 2:
+    elif row["miss_period"] >= 1:
         period = -2
         period_t = "Increase"
-    elif row["miss_period"] >= 1:
+    elif row["miss_period"] >= 0.5:
         period = 1
         period_t = "Increase"
     elif row["miss_period"] >= 0:
         period = 0
         period_t = "No change"
-    elif row["miss_period"] >= -1:
+    elif row["miss_period"] >= -0.5:
         period = 1
         period_t = "Missed"
-    elif row["miss_period"] >= -2:
+    elif row["miss_period"] >= -1.5:
         period = 2
         period_t = "Missed"
     else:
@@ -367,30 +406,36 @@ def apply_classifier(row):
         period_t = "Missed"
 
     if row["max_cch"] > 100:
-        cch = 10
-    elif row["max_cch"] > 50:
         cch = 8
-    elif row["max_cch"] > 20:
+    elif row["max_cch"] > 50:
         cch = 6
+    elif row["max_cch"] > 20:
+        cch = 5
     elif row["max_cch"] > 10:
         cch = 4
     else:
-        cch = 2
-    risk_score = cch * (slope_score + magnitute_score + period) / (1.0+1.0+0.3)
+        cch = 3
 
+    risk_score = cch * (1*slope_score + 1.6*magnitute_score + period) / (1*1.2+1.6*0.5+0.15)
+    if risk_score is None:
+        risk_score = 0
     if row["cross_zero"] > 0:
         crossing = f' Churn likely in {int(row["cross_zero"])} mth. '
     else:
         crossing = ""
+    period_text =""
+    if period != 0:
+        period_text = f"{period_t} pred purch of {abs(period)} mth."
 
     risk_score = (risk_score + 100) / 2
 
-    risk_value = f"""{report_date}: Current CCH:{int(row["CCH"])}, Last mth CCH:{int(row["CCH_lag_1"])}, 6 mth CCH likely {slope_t} within {int(np.abs(row["percent_decline"])*100)}%.{crossing} {period_t} pred purch of {abs(period)} mth."""
+    risk_value = f"""{report_date}: Current CCH:{int(row["CCH"])}, Last mth CCH:{int(row["CCH_lag_1"])}, 6 mth CCH likely {slope_t} within {int(np.abs(row["percent_decline"])*100)}%.{crossing} {period_text}"""
 
     return round(risk_score, 0), risk_value
 
 
 # apply the function to each row
+df3 = df3.fillna(0)
 df3[["risk_score", "risk_value"]] = df3.apply(
     apply_classifier, axis=1, result_type="expand"
 )
@@ -419,13 +464,26 @@ df5.to_csv("temp_5.csv")
 df4 = df3[df3["risk_score"]<45]
 df4.to_csv("temp_6.csv")
 
-len(df4)
-len(df5)
+print("opportunities:",len(df4),"risk:",len(df5))
 
-# df_time2[df_time2['CUSTOMER_SHIPTO']=='PEA300.AU10.0001315838']
+
+
+# df5[df5['CUSTOMER_SHIPTO']=='PEA300.AU10.0001315838']
 # df_time2 = df_time.reset_index()
 
 df5 = re.sub('{end_date}', current_date, sqlFile)
 
 # Assuming df is your DataFrame and 'column_name' is the column where you want to make replacements
-df5['risk_value'] = df5['risk_value'].str.replace(r'2024-02:', r'202402:', regex=True)
+# df5['risk_value'] = df5['risk_value'].str.replace(r'20240330:', r'202402:', regex=True)
+
+have_action = pd.read_csv('saved_risk.csv')
+no_action = pd.read_csv('saved_risk_all.csv')
+
+#create a column to check if there is action
+df['action'] = None
+df.loc[df['CUSTOMER_SHIPTO'].isin(have_action['SAPCustomerNumber__c']), 'action'] = 1
+df.loc[df['CUSTOMER_SHIPTO'].isin(no_action['SAPCustomerNumber__c']), 'action'] = 0
+
+#filter out None
+df = df[df['action'].notnull()]
+df.to_csv('temp_evaluation_old.csv')

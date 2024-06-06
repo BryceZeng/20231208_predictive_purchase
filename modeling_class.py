@@ -17,132 +17,283 @@ variables = [
         "period_4_sample_mean",
         "period_5_sample_mean",
         "period_6_sample_mean",
-        "period_1_uncertainty",
-        "period_2_uncertainty",
-        "period_3_uncertainty",
-        "period_4_uncertainty",
-        "period_5_uncertainty",
-        "period_6_uncertainty",
+        "CNT_POSTING_DATE",
+        "CCH",
         "CCH_lag_1",
         "CCH_lag_2",
         "CCH_lag_3",
-        "CNTD_RENTAL_POSTING_DATE",
-        "REFERENCE_ITEMS",
+        "CCH_lag_4",
+        "CCH_lag_5",
+        "CCH_lag_6",
         "SALE_QTY",
-        "CNT_POSTING_DATE",
-        "PRODUCT_SALES",
-        "RENTAL_BILLED_QTY",
-        "RENTAL_SALES",
         "DAILY_RENT",
-        "Smoothed_Holidays",
-        "Smoothed_Holidays_lag_1",
+        "MONTHLY_RENT",
+        "QUARTERLY_RENT",
+        "ANNUAL_RENT",
         "Smoothed_Holidays_shift_1",
         "Smoothed_Holidays_shift_2",
         "Smoothed_Holidays_shift_3",
         "Smoothed_Holidays_shift_4",
         "Smoothed_Holidays_shift_5",
         "Smoothed_Holidays_shift_6",
+        "period_1_lower_bound",
+        "period_2_lower_bound",
+        "period_3_lower_bound",
+        "period_4_lower_bound",
+        "period_5_lower_bound",
+        "period_6_lower_bound",
+        "period_1_upper_bound",
+        "period_2_upper_bound",
+        "period_3_upper_bound",
+        "period_4_upper_bound",
+        "period_5_upper_bound",
+        "period_6_upper_bound",
+        "less12",
+        "RENTAL_BILLED_QTY",
+        "PRODUCT_SALES",
+        "RENTAL_SALES",
         "cv2",
-        "POSTING_PERIOD",
-        "PROD_LRGLG_SALE",
-        "PROD_5MEDLE_SALE",
+        "cv2_sales",
         "RENTAL_SALES_lag_1",
         "RENTAL_SALES_lag_2",
         "RENTAL_SALES_lag_3",
+        "RENTAL_SALES_lag_4",
+        "RENTAL_SALES_lag_5",
+        "RENTAL_SALES_lag_6",
         "SALE_QTY_lag_1",
         "SALE_QTY_lag_2",
         "SALE_QTY_lag_3",
-        "DISCOUNT_RATIO", # NOT ADDED
-        "AVG_DOCUMENT_ISSUE_DIFF", # NOT ADDED
-        "AVG_POST_ISSUE_DIFF", # NOT ADDED
-        "DAY_BETWEEN_POSTING", # NOT ADDED
-        "DELIVERY", # NOT ADDED
-        'PROD_SMLLD2_SALE', # NOT ADDED
-        'PROD_1MEDLE_SALE', # NOT ADDED
-        'PROD_SMLLD_SALE', # NOT ADDED
-        # 'PROD_4MEDLE2_SALE', # NOT ADDED
-        # 'PROD_8LRGLG_SALE', # NOT ADDED
-        # 'MONTHLY_RENT', # NOT ADDED
-        # 'ANNUAL_RENT', # NOT ADDED
-        # "DAILY_RENT_lag_1",
-        # "DAILY_RENT_lag_2",
-        # "DAILY_RENT_lag_3",
-        "CNT_POSTING_DATE_lag_1",
-        "CNT_POSTING_DATE_lag_2",
-        "CNT_POSTING_DATE_lag_3",
-        "PROD_LRGLG_SALE_lag_1",
-        "PROD_LRGLG_SALE_lag_2",
-        "PROD_LRGLG_SALE_lag_3",
-        # "ROLL_MEAN_3",
-        # "ROLL_MEAN_6",
+        "SALE_QTY_lag_4",
+        "SALE_QTY_lag_5",
+        "SALE_QTY_lag_6",
+        "DELIVERY",
+        "MATERIAL_020112_SALE",
+        "MATERIAL_020110_SALE",
+        "MATERIAL_020104_SALE",
     ]
-def train_classifer(df):
-    df = pd.read_csv("data/data_8.csv")
-    df["POSTING_DATE"] = pd.to_datetime(df["POSTING_DATE"])
-    # df.head()
-    print(len(df))
-    print(df["POSTING_DATE"].max())
-    df = df[df["POSTING_DATE"]<='2023-11-01']
-    df = df[df["POSTING_DATE"]>='2022-01-01']
-    df = helper.clean_data(df)
-    df = helper.create_lags(df)
-    df_reg = pd.read_csv("data/for_regression3.csv")
-    columns = [('period_1_lower_bound', 'period_2_lower_bound','period_3_lower_bound','period_4_lower_bound','period_5_lower_bound','period_6_lower_bound','period_1_sample_mean','period_2_sample_mean','period_3_sample_mean','period_4_sample_mean','period_5_sample_mean','period_6_sample_mean',
-            'period_1_upper_bound','period_2_upper_bound','period_3_upper_bound','period_4_upper_bound','period_5_upper_bound','period_6_upper_bound','POSTING_DATE'
-            )] +[('period_1_lower_bound.'+str(i), 'period_2_lower_bound.'+str(i),'period_3_lower_bound.'+str(i),'period_4_lower_bound.'+str(i),'period_5_lower_bound.'+str(i),'period_6_lower_bound.'+str(i),'period_1_sample_mean.'+str(i),'period_2_sample_mean.'+str(i),'period_3_sample_mean.'+str(i),'period_4_sample_mean.'+str(i),'period_5_sample_mean.'+str(i),'period_6_sample_mean.'+str(i),
-            'period_1_upper_bound.'+str(i),'period_2_upper_bound.'+str(i),'period_3_upper_bound.'+str(i),'period_4_upper_bound.'+str(i),'period_5_upper_bound.'+str(i),'period_6_upper_bound.'+str(i),'POSTING_DATE.'+str(i)) for i in range(1, 14)]
 
-    dfs = pd.DataFrame()
-    for i in tqdm(columns):
-        df_melted = df_reg.melt(id_vars='CUSTOMER_SHIPTO', value_vars=list(i), var_name='variable', value_name='value')
-        df_melted = df_melted.pivot(index='CUSTOMER_SHIPTO', columns='variable', values='value').reset_index()
-        df_melted = df_melted.rename(columns=lambda x: x.split('.')[0])
-        dfs = pd.concat([dfs, df_melted], ignore_index=True, axis=0)
-    dfs["POSTING_DATE"] = pd.to_datetime(dfs["POSTING_DATE"])
-    df["POSTING_DATE"] = pd.to_datetime(df["POSTING_DATE"])
-    df_wide = dfs.merge(df, on=["CUSTOMER_SHIPTO", "POSTING_DATE"])
+# variables = [
+#     "period_1_sample_mean",
+#     "period_2_sample_mean",
+#     "period_3_sample_mean",
+#     "period_4_sample_mean",
+#     "period_5_sample_mean",
+#     "period_6_sample_mean",
+#     "CNT_POSTING_DATE",
+#     "CCH",
+#     "CCH_lag_1",
+#     "CCH_lag_2",
+#     "CCH_lag_3",
+#     "CCH_lag_4",
+#     "CCH_lag_5",
+#     "CCH_lag_6",
+#     "SALE_QTY",
+#     "DAILY_RENT",
+#     "MONTHLY_RENT",
+#     "QUARTERLY_RENT",
+#     "ANNUAL_RENT",
+#     "Smoothed_Holidays_shift_1",
+#     "Smoothed_Holidays_shift_2",
+#     "Smoothed_Holidays_shift_3",
+#     "Smoothed_Holidays_shift_4",
+#     "Smoothed_Holidays_shift_5",
+#     "Smoothed_Holidays_shift_6",
+#     "period_1_lower_bound",
+#     "period_2_lower_bound",
+#     "period_3_lower_bound",
+#     "period_4_lower_bound",
+#     "period_5_lower_bound",
+#     "period_6_lower_bound",
+#     "period_1_upper_bound",
+#     "period_2_upper_bound",
+#     "period_3_upper_bound",
+#     "period_4_upper_bound",
+#     "period_5_upper_bound",
+#     "period_6_upper_bound",
+#     "less12",
+#     "RENTAL_BILLED_QTY",
+#     "PRODUCT_SALES",
+#     "RENTAL_SALES",
+#     "cv2",
+#     "cv2_sales",
+#     "RENTAL_SALES_lag_1",
+#     "RENTAL_SALES_lag_2",
+#     "RENTAL_SALES_lag_3",
+#     "RENTAL_SALES_lag_4",
+#     "RENTAL_SALES_lag_5",
+#     "RENTAL_SALES_lag_6",
+#     "SALE_QTY_lag_1",
+#     "SALE_QTY_lag_2",
+#     "SALE_QTY_lag_3",
+#     "SALE_QTY_lag_4",
+#     "SALE_QTY_lag_5",
+#     "SALE_QTY_lag_6",
+#     "DELIVERY",
+#     "MATERIAL_020112_SALE",
+#     "MATERIAL_020110_SALE",
+#     "MATERIAL_020104_SALE",
+# ]
+def train_classifer(df):
+    # read in df from pickle
+    dfa = pd.read_pickle("df_all.pkl")
+    df = pd.read_pickle("df.pkl")
+    # subset CUSTOMER_SHIPTO from dfa
+    df = df[df["CUSTOMER_SHIPTO"].isin(dfa["CUSTOMER_SHIPTO"])]
+
+    dfa.columns
+    dfa = dfa[
+        [
+            "CUSTOMER_SHIPTO",
+            "period_1_lower_bound",
+            "period_2_lower_bound",
+            "period_3_lower_bound",
+            "period_4_lower_bound",
+            "period_5_lower_bound",
+            "period_6_lower_bound",
+            "period_1_sample_mean",
+            "period_2_sample_mean",
+            "period_3_sample_mean",
+            "period_4_sample_mean",
+            "period_5_sample_mean",
+            "period_6_sample_mean",
+            "period_1_upper_bound",
+            "period_2_upper_bound",
+            "period_3_upper_bound",
+            "period_4_upper_bound",
+            "period_5_upper_bound",
+            "period_6_upper_bound",
+            "PREDICTION_DATE",
+        ]
+    ]
+    list_col = dfa.columns.tolist()
+
+    dfa["POSTING_DATE"] = pd.to_datetime(dfa["PREDICTION_DATE"])
+    df = df.merge(dfa, on=["CUSTOMER_SHIPTO", "POSTING_DATE"], how="inner")
+    list_col = df.columns.tolist()
+
+    print(len(df))
     ### Combining the fields()
     for period in tqdm(range(1, 7)):
         column_name = f"period_{period}_uncertainty"
-        upper_bound = df_wide[f"period_{period}_upper_bound"]
-        lower_bound = df_wide[f"period_{period}_lower_bound"]
-        df_wide[column_name] = upper_bound - lower_bound
-    df_wide = df_wide[df_wide['POSTING_DATE'] <='2023-05-01']
-    df_wide = df_wide.dropna()
-    df_wide = pd.read_pickle('df_wide.pkl')
+        upper_bound = df[f"period_{period}_upper_bound"]
+        lower_bound = df[f"period_{period}_lower_bound"]
+        df[column_name] = upper_bound - lower_bound
 
+    # identify what columns are important for CCH_shift_3 apply a lasso regression
+    Y = df["CCH_shift_6"]
+    elements_to_remove = [
+        "POSTING_DATE",
+        "cv2_sales",
+        "CCH_shift_1",
+        "CCH_shift_2",
+        "CCH_shift_3",
+        "CCH_shift_4",
+        "CCH_shift_5",
+        "CCH_shift_6",
+        "ORDER_NO",
+        "PREDICTION_DATE",
+        "CUSTOMER_SHIPTO",
+    ]
+    for element in elements_to_remove:
+        list_col.remove(element)
+    X = df[list_col]
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.15)
+    import numpy as np
+    from sklearn.linear_model import LassoCV
 
-    # mask = (df_wide[['CCH_shift_1','CCH_shift_2','CCH_shift_3','CCH_shift_4','CCH_shift_5','CCH_shift_6']] <= 0)
-    # row_mask = mask.all(axis=1)
-    # df_wide = df_wide[~row_mask]
-    # df_wide = df_wide.reset_index()
+    lasso = LassoCV()
+    lasso.fit(X_train, y_train)
+    # get the Important features
+    features_select = [
+        list_col[i] for i in range(len(lasso.coef_)) if lasso.coef_[i] != 0
+    ]
+    variables = [
+        "period_1_sample_mean",
+        "period_2_sample_mean",
+        "period_3_sample_mean",
+        "period_4_sample_mean",
+        "period_5_sample_mean",
+        "period_6_sample_mean",
+        "CNT_POSTING_DATE",
+        "CCH",
+        "CCH_lag_1",
+        "CCH_lag_2",
+        "CCH_lag_3",
+        "CCH_lag_4",
+        "CCH_lag_5",
+        "CCH_lag_6",
+        "SALE_QTY",
+        "DAILY_RENT",
+        "MONTHLY_RENT",
+        "QUARTERLY_RENT",
+        "ANNUAL_RENT",
+        "Smoothed_Holidays_shift_1",
+        "Smoothed_Holidays_shift_2",
+        "Smoothed_Holidays_shift_3",
+        "Smoothed_Holidays_shift_4",
+        "Smoothed_Holidays_shift_5",
+        "Smoothed_Holidays_shift_6",
+        "period_1_lower_bound",
+        "period_2_lower_bound",
+        "period_3_lower_bound",
+        "period_4_lower_bound",
+        "period_5_lower_bound",
+        "period_6_lower_bound",
+        "period_1_upper_bound",
+        "period_2_upper_bound",
+        "period_3_upper_bound",
+        "period_4_upper_bound",
+        "period_5_upper_bound",
+        "period_6_upper_bound",
+        "less12",
+        "RENTAL_BILLED_QTY",
+        "PRODUCT_SALES",
+        "RENTAL_SALES",
+        "cv2",
+        "cv2_sales",
+        "RENTAL_SALES_lag_1",
+        "RENTAL_SALES_lag_2",
+        "RENTAL_SALES_lag_3",
+        "RENTAL_SALES_lag_4",
+        "RENTAL_SALES_lag_5",
+        "RENTAL_SALES_lag_6",
+        "SALE_QTY_lag_1",
+        "SALE_QTY_lag_2",
+        "SALE_QTY_lag_3",
+        "SALE_QTY_lag_4",
+        "SALE_QTY_lag_5",
+        "SALE_QTY_lag_6",
+        "DELIVERY",
+        "MATERIAL_020112_SALE",
+        "MATERIAL_020110_SALE",
+        "MATERIAL_020104_SALE",
+    ]
 
-    for column in variables:
-        df_wide[column] = df_wide[column].astype(float)
-    X = df_wide[variables]
-    y1 = df_wide["CCH_shift_1"]
-    y2 = df_wide["CCH_shift_2"]
-    y3 = df_wide["CCH_shift_3"]
-    y4 = df_wide["CCH_shift_4"]
-    y5 = df_wide["CCH_shift_5"]
-    y6 = df_wide["CCH_shift_6"]
-
+    X = df[variables]
+    y1 = df["CCH_shift_1"]
+    y2 = df["CCH_shift_2"]
+    y3 = df["CCH_shift_3"]
+    y4 = df["CCH_shift_4"]
+    y5 = df["CCH_shift_5"]
+    y6 = df["CCH_shift_6"]
     def prediction_lgb(X, y1):
-        X_train, X_test, y_train, y_test = train_test_split(X, y1, test_size=0.15)
+        X_train, X_test, y_train, y_test = train_test_split(X, y1, test_size=0.25)
         lgb_train = lgb.Dataset(X_train, y_train)
         lgb_test = lgb.Dataset(X_test, y_test, reference=lgb_train)
         # params = {"boosting_type": "dart", "objective": "mse","learning_rate": 0.02,"max_depth": 3,"num_leaves": 12}
-        params = {"boosting_type": "gbdt",
-                "objective": "regression",
+        params = {"boosting_type": "dart",
+                "objective": "mse",
+                'is_unbalance': True,
                 'metric':['l1','l2'],
                 "tree":"voting",
-                "learning_rate": 0.005,
-                'num_iterations':8000,
-                'early_stopping_round':5,
+                "learning_rate": 0.015,
+                'num_iterations':10000,
+                'early_stopping_round':25,
                 'max_bin':600,
                 # "max_depth": 3,
                 # "bagging_fraction":0.6,
                 'feature_fraction':0.8,
+                "subsample_freq" : 8,
                 "data_sample_strategy":'goss',
                 # "num_leaves": 12
                 'force_row_wise':True
@@ -166,11 +317,16 @@ def train_classifer(df):
     print(mean_squared_error(y1, model[0].predict(X)))
     print(mean_squared_error(y3, model[2].predict(X)))
     print(mean_squared_error(y6, model[5].predict(X)))
-    with open("model_list6.pkl", "wb") as f:
-        dill.dump(model, f)
 
-    with open("model_list6.pkl", "rb") as f:
-        model = dill.load(f)
+    print(mean_squared_error(y3, model_class[2].predict(X)))
+
+
+    with open("model_list6_202406.pkl", "wb") as f:
+        dill.dump(model, f)
+    with open("model_list6_2024.pkl", "rb") as f:
+        model_class = dill.load(f)
+    # with open("model_list6.pkl", "rb") as f:
+    #     model = dill.load(f)
     return model
 
 def calculate_slope(row):
@@ -181,9 +337,9 @@ def calculate_slope(row):
         row["pred1"],
         row["pred2"],
         row["pred3"],
-        row["pred4"],
-        row["pred5"],
-        row["pred6"],
+        # row["pred4"],
+        # row["pred5"],
+        # row["pred6"],
     ]
     slope, intercept, r_value, p_value, std_err = stats.linregress(
         range(len(data)), data
@@ -193,7 +349,7 @@ def calculate_slope(row):
     else:
         period_to_cross_zero = None
     # max_cch = max([row["CCH_lag_2"], row["CCH_lag_1"], row["CCH"]])
-    max_cch = max( row["CCH_lag_1"],[row["CCH"]])
+    max_cch = max([row["CCH_lag_1"], row["CCH"]])
     if max_cch != 0:
         percent_decline = slope / max_cch
     else:
@@ -254,51 +410,91 @@ def explainer(df_wide, gbm_explainer):
     return df_out
 
 def build_explainer(y3_pred,X, y3):
-    sample_size = 500
+    sample_size = 5000
     sample_indices = np.random.choice(X.index, size=sample_size, replace=False)
     X_sample = X.loc[sample_indices]
     y3_sample = y3.loc[sample_indices]
     gbm_explainer = dx.Explainer(y3_pred, X_sample, y3_sample, label="gbm")
-    with open("gbm_explainer2.pkl", "wb") as f:
+    with open("gbm_explainer_202406.pkl", "wb") as f:
         dill.dump(gbm_explainer, f)
     return gbm_explainer
 
 def explainer_d(gbm_explainer, instance):
+    # select a single Row
+    # instance = X.iloc[0]
     prediction_breakdown = gbm_explainer.predict_parts(instance, B=5, N=10, type='break_down').result
+    # print(prediction_breakdown["variable_name"].unique())
     replacements = {
-        r'period_\d+_' : '',
-        r'_lag_\d' : '',
-        r'_shift_\d' : '',
-        r'Smoothed_Holidays' : 'Holidays',
-        r'cv2' : 'Cyclicality',
-        r'_\d' : '',
-        r'sample_mean' : 'Trend',
-        r'ROLL_MEAN' : 'CCH',
-        r'uncertainty' : 'Uncertainty',
-        r'CNTD_RENTAL_POSTING_DATE': 'Rental_Freq',
-        r'PROD_LRGLG_SALE' : 'Product_Type',
-        r'PROD_5MEDLE_SALE' : 'Product_Type',
-        r'PROD_1MEDLE_SALE' : 'Product_Type',
-        r'PROD_SMLLD_SALE' : 'Product_Type',
-        r'PROD_4MEDLE2_SALE' : 'Product_Type',
-        r'PROD_8LRGLG_SALE' : 'Product_Type',
-        r'RENTAL_BILLED_QTY' : 'Rental',
-        r'RENTAL_SALES': 'Rental',
-        r'DAILY_RENT': 'Rent_Collect_Period',
-        r'MONTHLY_RENT':'Rent_Collect_Period',
-        r'ANNUAL_RENT':'Rent_Collection_Freq',
-        r'REFERENCE_ITEMS' : 'Interactions',
-        r'POSTING_PERIOD': 'Interactions',
-        r'CNT_POSTING_DATE': 'Interactions',
-        r'DAY_BETWEEN_POSTING': 'Interactions',
-        r'AVG_DOCUMENT_ISSUE_DIFF': 'Delays',
-        r'AVG_POST_ISSUE_DIFF': 'Delays',
-        r'PRODUCT_SALES' : "Sales",
-        r'SALE_QTY' : "Sales",
+        r"period_\d+_": "",
+        r"_lag_\d": "",
+        r"_shift_\d": "",
+        r"Smoothed_Holidays": "Holidays",
+        r"cv2": "Cyclicality",
+        r"_\d": "",
+        r"sample_mean": "Trend",
+        r"ROLL_MEAN": "CCH",
+        r"CCH": "CCH",
+        r"uncertainty": "Irregularity",
+        r"upper_bound": "Irregularity",
+        r"lower_bound": "Irregularity",
+        r"DISCOUNT_RATIO": "Discount",
+        r"CNTD_RENTAL_POSTING_DATE": "Rental_Freq",
+        r"CNTD_POSTING_DATE": "Posting_Freq",
+        r"CNT_POSTING_DATE": "Posting_Freq",
+        r"PROD_LRGLG_SALE": "Product_Type",
+        r"PROD_5MEDLE_SALE": "Product_Type",
+        r"PROD_1MEDLE_SALE": "Product_Type",
+        r"PROD_SMLLD_SALE": "Product_Type",
+        r"PROD_4MEDLE2_SALE": "Product_Type",
+        r"PROD_8LRGLG_SALE": "Product_Type",
+        r"MATERIAL_020112_SALE": "Product_Type",
+        r"MATERIAL_050299_SALE": "Product_Type",
+        r"MATERIAL_020110_SALE": "Product_Type",
+        r"MATERIAL_020104_SALE": "Product_Type",
+        r"MATERIAL_111899_SALE": "Product_Type",
+        r"MATERIAL_051299_SALE": "Product_Type",
+        r"PROD_SMLLD2_SALE": "Product_Type",
+        r"PRODLRGLG_SALE": "Product_Type",
+        r"PRODMEDLE2_SALE": "Product_Type",
+        r"MATERIAL50299_SALE": "Product_Type",
+        r"MATERIAL20110_SALE": "Product_Type",
+        r"MATERIAL51299_SALE": "Product_Type",
+        r"MATERIAL20104_SALE": "Product_Type",
+        r"MATERIAL11899_SALE": "Product_Type",
+        r"MATERIAL20112_SALE": "Product_Type",
+        r"RENTAL_BILLED_QTY": "Rental",
+        r"less12": "lesser_data",
+        r"PRODMEDLE_SALE": "Product_Type",
+        r"KSD": "Missed_Purchases",
+        r"KS_filtered": "Missed_Purchases",
+        r"Smoothed_Holidays" r"RENTAL_BILLED_QTY": "Rental",
+        r"DELIVERY": "Delivery",
+        r"RENTAL_SALES": "Rental",
+        r"DAILY_RENT": "Rent_Collect_Period",
+        r"MONTHLY_RENT": "Rent_Collect_Period",
+        r"QUARTERLY_RENT": "Rent_Collect_Period",
+        r"ANNUAL_RENT": "Rent_Collection_Freq",
+        r"Other_Rent_Period": "Rent_Collect_Period",
+        r"REFERENCE_ITEMS": "Interactions",
+        r"POSTING_PERIOD": "Interactions",
+        r"CNT_POSTING_DATE": "Interactions",
+        r"DAY_BETWEEN_POSTING": "Interactions",
+        r"AVG_DOCUMENT_ISSUE_DIFF": "Delays",
+        r"AVG_POST_ISSUE_DIFF": "Delays",
+        r"PRODUCT_SALES": "Sales",
+        r"SALE_QTY": "Sales",
     }
+    # i want to replace all iteratively
+    prediction_breakdown["variable_name"] = prediction_breakdown[
+        "variable_name"
+    ].replace(replacements, regex=True)
     prediction_breakdown['variable_name'] = prediction_breakdown['variable_name'].replace(replacements, regex=True)
     prediction_breakdown = prediction_breakdown.groupby('variable_name')['contribution'].sum().abs().reset_index()
-    prediction_breakdown = prediction_breakdown[~prediction_breakdown['variable_name'].str.contains('^$|intercept|Trend|Uncertainty|Holidays')]
+    prediction_breakdown = prediction_breakdown[
+        ~prediction_breakdown["variable_name"].str.contains(
+            '^$|intercept|Trend|Uncertainty|Holidays|""'
+        )
+    ]
     top_contributions = prediction_breakdown.nlargest(3, 'contribution')['variable_name'].tolist()
     string = f"This is due to {top_contributions[0]}, {top_contributions[1]}, and {top_contributions[2]}. "
 
